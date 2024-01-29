@@ -97,7 +97,6 @@ func getIAMToken(oAuthToken string) string {
 	}
 
 	iamToken, ok := cache.Get("iamtoken")
-	slog.Info("IAM token succesfully installed from cache")
 
 	if !ok {
 		slog.Info("IAM token not found at cache. Try to request IAM token...")
