@@ -3,7 +3,6 @@ module github.com/unixzen/yc-billing-exporter
 go 1.21.0
 
 require (
-	github.com/golang-jwt/jwt/v4 v4.5.0
 	github.com/maypok86/otter v1.0.0
 	github.com/prometheus/client_golang v1.18.0
 )

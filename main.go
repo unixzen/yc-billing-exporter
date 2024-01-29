@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/maypok86/otter"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -45,7 +46,7 @@ func recordMetrics(oAuthToken string, ycBillingId string) {
 
 func initMetrics() prometheus.Gauge {
 	return promauto.NewGauge(prometheus.GaugeOpts{
-		Name: "balance",
+		Name: "yc_billing_balance",
 		Help: "The total balance fo Yandex cloud account",
 	})
 }
@@ -84,27 +85,62 @@ func getYandexCloudBilling(iamToken string, ycBillingId string) (float64, error)
 
 func getIAMToken(oAuthToken string) string {
 
-	resp, err := http.Post(
-		"https://iam.api.cloud.yandex.net/iam/v1/tokens",
-		"application/json",
-		strings.NewReader(fmt.Sprintf(`{"yandexPassportOauthToken":"%s"}`, oAuthToken)),
-	)
+	cache, err := otter.MustBuilder[string, string](100).
+		CollectStats().
+		Cost(func(iamtoken string, value string) uint32 {
+			return 1
+		}).
+		WithTTL(time.Hour).
+		Build()
 	if err != nil {
-		panic(err)
+		slog.Error("Can't create cache for IAM token")
 	}
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		panic(fmt.Sprintf("%s: %s", resp.Status, body))
+
+	iamToken, ok := cache.Get("iamtoken")
+	slog.Info("IAM token succesfully installed from cache")
+
+	if !ok {
+		slog.Info("IAM token not found at cache. Try to request IAM token...")
+		resp, err := http.Post(
+			"https://iam.api.cloud.yandex.net/iam/v1/tokens",
+			"application/json",
+			strings.NewReader(fmt.Sprintf(`{"yandexPassportOauthToken":"%s"}`, oAuthToken)),
+		)
+		if err != nil {
+			panic(err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			panic(fmt.Sprintf("%s: %s", resp.Status, body))
+		}
+		var data struct {
+			IAMToken string `json:"iamToken"`
+		}
+		err = json.NewDecoder(resp.Body).Decode(&data)
+		if err != nil {
+			panic(err)
+		}
+
+		cache.Set("iamtoken", data.IAMToken)
+		slog.Info("IAM token added to cache")
+
+		iamToken, ok := cache.Get("iamtoken")
+
+		if !ok {
+			slog.Error("Can't get IAM token from cache")
+			os.Exit(1)
+		}
+
+		slog.Info("IAM token succesfully installed")
+
+		return iamToken
+		//return data.IAMToken
+
 	}
-	var data struct {
-		IAMToken string `json:"iamToken"`
-	}
-	err = json.NewDecoder(resp.Body).Decode(&data)
-	if err != nil {
-		panic(err)
-	}
-	return data.IAMToken
+
+	return iamToken
+	//return data.IAMToken
 }
 
 func main() {
