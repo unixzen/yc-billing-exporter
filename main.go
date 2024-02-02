@@ -1,10 +1,10 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -18,27 +18,33 @@ import (
 )
 
 const (
-	BASE_URL string = "https://billing.api.cloud.yandex.net/billing/v1/billingAccounts/"
+	BaseUrl string = "https://billing.api.cloud.yandex.net/billing/v1/billingAccounts/"
 )
 
 type ycBillingResponse struct {
-	Active      bool      `json:"active"`
+	CreatedAt   time.Time `json:"createdAt"`
 	ID          string    `json:"id"`
 	Name        string    `json:"name"`
-	CreatedAt   time.Time `json:"createdAt"`
 	CountryCode string    `json:"countryCode"`
 	Currency    string    `json:"currency"`
 	Balance     string    `json:"balance"`
+	Active      bool      `json:"active"`
 }
 
-func recordMetrics(oAuthToken string, ycBillingId string) {
+func recordMetrics(ctx context.Context, oAuthToken string, ycBillingId string) {
 	gauge := initMetrics()
 
 	go func() {
 		for {
-			bl, _ := getYandexCloudBilling(getIAMToken(oAuthToken), ycBillingId)
-			gauge.Set(bl)
-			time.Sleep(time.Hour * 1)
+			select {
+			case <-ctx.Done():
+				// Context was cancelled or deadline exceeded, exit the goroutine
+				return
+			default:
+				bl := getYandexCloudBilling(getIAMToken(oAuthToken), ycBillingId)
+				gauge.Set(bl)
+				time.Sleep(time.Hour * 1)
+			}
 		}
 	}()
 }
@@ -50,36 +56,38 @@ func initMetrics() prometheus.Gauge {
 	})
 }
 
-func getYandexCloudBilling(iamToken string, ycBillingId string) (float64, error) {
+func getYandexCloudBilling(iamToken string, ycBillingId string) float64 {
 	client := &http.Client{}
 	ycMetrics := ycBillingResponse{}
 
-	URL := BASE_URL + ycBillingId
+	URL := BaseUrl + ycBillingId
 
-	req, err := http.NewRequest("GET", URL, nil)
+	req, err := http.NewRequest(http.MethodGet, URL, nil)
+
 	if err != nil {
-		return 0.0, err
+		slog.Error("Can't make request")
 	}
 	req.Header.Add("Authorization", "Bearer "+iamToken)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return 0.0, err
+		slog.Error("Can't get response")
 	}
-
+	defer resp.Body.Close()
 	temp, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return 0.0, err
+		slog.Error("Can't read response body")
 	}
 
 	if err := json.Unmarshal(temp, &ycMetrics); err != nil {
-		return 0.0, err
+		slog.Error("Can't make unmarshal json")
 	}
 	flBalance, err := strconv.ParseFloat(ycMetrics.Balance, 64)
 	if err != nil {
-		log.Fatal("Can't convert string to float64")
+		//log.Fatal("Can't convert string to float64")
+		slog.Error("Can't convert string to float64")
 	}
-	return flBalance, nil
+	return flBalance
 }
 
 func getIAMToken(oAuthToken string) string {
@@ -89,19 +97,19 @@ func getIAMToken(oAuthToken string) string {
 		strings.NewReader(fmt.Sprintf(`{"yandexPassportOauthToken":"%s"}`, oAuthToken)),
 	)
 	if err != nil {
-		panic(err)
+		slog.Error("Can't make request")
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		panic(fmt.Sprintf("%s: %s", resp.Status, body))
+		slog.Error("HTTP request err", resp.Status, body)
 	}
 	var data struct {
 		IAMToken string `json:"iamToken"`
 	}
 	err = json.NewDecoder(resp.Body).Decode(&data)
 	if err != nil {
-		panic(err)
+		slog.Error("Can't decode response from IAM yandex cloud API")
 	}
 
 	return data.IAMToken
@@ -125,7 +133,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	recordMetrics(oAuthToken, ycBillingId)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	recordMetrics(ctx, oAuthToken, ycBillingId)
 
 	http.Handle("/metrics", promhttp.Handler())
 	http.ListenAndServe(":2112", nil)
