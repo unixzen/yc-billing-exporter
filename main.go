@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -50,39 +49,42 @@ func main() {
 		os.Exit(1)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	// ctx, cancel := context.WithCancel(context.Background())
+	// defer cancel()
 
-	//c := time.NewTicker(time.Second)
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				slog.Error("shit")
-				return
-			default:
-				slog.Info("All working...")
-				recordMetrics(ctx, oAuthToken, ycBillingId)
-			}
-		}
-	}()
+	// c := time.NewTicker(time.Second)
+	// go func() {
+	// 	for {
+	// 		select {
+	// 		case <-ctx.Done():
+	// 			slog.Error("shit")
+	// 			return
+	// 		case <-c.C:
+	// 			fmt.Println("tick")
+	// 		default:
+	// 			slog.Info("All working...")
+	// 		}
+	// 	}
+	// }()
+
+	recordMetrics(oAuthToken, ycBillingId)
 
 	http.Handle("/metrics", promhttp.Handler())
-	http.ListenAndServe(":2112", nil)
+	go http.ListenAndServe(":2112", nil)
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 }
 
-func recordMetrics(ctx context.Context, oAuthToken string, ycBillingId string) {
+func recordMetrics(oAuthToken string, ycBillingId string) {
 	gauge := initMetrics()
 
-	for {
+	for range time.Tick(time.Hour) {
 		gt, _ := getIAMToken(oAuthToken)
 		bl, _ := getYandexCloudBilling(gt, ycBillingId)
 		gauge.Set(bl)
-		time.Sleep(time.Hour * 1)
+		//time.Sleep(time.Hour * 1)
 	}
 }
 
