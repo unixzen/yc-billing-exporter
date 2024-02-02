@@ -49,46 +49,41 @@ func main() {
 		os.Exit(1)
 	}
 
-	// ctx, cancel := context.WithCancel(context.Background())
-	// defer cancel()
+	go recordMetrics(oAuthToken, ycBillingId)
 
-	// c := time.NewTicker(time.Second)
-	// go func() {
-	// 	for {
-	// 		select {
-	// 		case <-ctx.Done():
-	// 			slog.Error("shit")
-	// 			return
-	// 		case <-c.C:
-	// 			fmt.Println("tick")
-	// 		default:
-	// 			slog.Info("All working...")
-	// 		}
-	// 	}
-	// }()
+	srv := &http.Server{
+		Addr:    ":2112",
+		Handler: promhttp.Handler(),
+	}
 
-	recordMetrics(oAuthToken, ycBillingId)
+	done := make(chan os.Signal, 1)
+	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 
-	http.Handle("/metrics", promhttp.Handler())
-	go http.ListenAndServe(":2112", nil)
+	go func() {
+		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("listen: %s\n", err)
+		}
+	}()
+	slog.Info("Server Started")
 
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	<-done
+
+	slog.Info("Http server stopped")
 }
 
 func recordMetrics(oAuthToken string, ycBillingId string) {
 	gauge := initMetrics()
-
-	for range time.Tick(time.Hour) {
-		gt, _ := getIAMToken(oAuthToken)
-		bl, _ := getYandexCloudBilling(gt, ycBillingId)
+	slog.Info("Record prometeus metric")
+	for {
+		getToken, _ := getIAMToken(oAuthToken)
+		bl, _ := getYandexCloudBilling(getToken, ycBillingId)
 		gauge.Set(bl)
-		//time.Sleep(time.Hour * 1)
+		time.Sleep(time.Hour * 1)
 	}
 }
 
 func initMetrics() prometheus.Gauge {
+	slog.Info("Build prometeus metric")
 	return promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "yc_billing_balance",
 		Help: "The total balance fo Yandex cloud account",
@@ -96,6 +91,7 @@ func initMetrics() prometheus.Gauge {
 }
 
 func getIAMToken(oAuthToken string) (string, error) {
+	slog.Info("Getting IAM token...")
 	resp, err := http.Post(
 		"https://iam.api.cloud.yandex.net/iam/v1/tokens",
 		"application/json",
@@ -119,6 +115,7 @@ func getIAMToken(oAuthToken string) (string, error) {
 		return "", err
 	}
 
+	slog.Info("IAM token received")
 	return data.IAMToken, nil
 
 }
@@ -129,10 +126,12 @@ func getYandexCloudBilling(iamToken string, ycBillingId string) (float64, error)
 
 	URL := BaseUrl + ycBillingId
 
+	slog.Info("Trying get info about balance of Yandex cloud")
 	req, err := http.NewRequest(http.MethodGet, URL, nil)
 
+	slog.Info("Try authorize at Yandex cloud")
 	if err != nil {
-		slog.Error("Can't make request")
+		slog.Error("Can't make auth request")
 		return 0, err
 	}
 	req.Header.Add("Authorization", "Bearer "+iamToken)
@@ -158,5 +157,7 @@ func getYandexCloudBilling(iamToken string, ycBillingId string) (float64, error)
 		//log.Fatal("Can't convert string to float64")
 		slog.Error("Can't convert string to float64")
 	}
+	slog.Info("Received value of balance of Yandex cloud")
+
 	return flBalance, nil
 }
