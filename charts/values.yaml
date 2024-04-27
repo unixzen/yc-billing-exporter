@@ -1,0 +1,31 @@
+nameOverride: ""
+fullnameOverride: ""
+
+replicaCount: 1
+
+image:
+  repository: b4d63rus/yc-billing-exporter
+  pullPolicy: IfNotPresent
+  tag: "0.0.1"
+
+service:
+  type: ClusterIP
+  port: 2112
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+existingSecret:
+  name: "yc-billing-exporter"
+  ## keys are `TOKEN` and `YCBILLINGID`.
+
+resources: {}
+
+serviceMonitor:
+  enabled: true
+  # Interval at which metrics should be scraped
+  interval: 60s
+  # Optional additional labels for ServiceMonitor
+  additionalLabels: {}
