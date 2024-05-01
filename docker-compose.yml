@@ -1,0 +1,14 @@
+version: '3'
+services:
+  yc_billing_exporter:
+    image: yc-billing-exporter:latest
+    ports:
+      - "2112:2112"
+    restart: always
+    volumes:
+      - ./privatekey.pem:/privatekey.pem
+    environment:
+      SERVICE_ACCOUNT_ID: "<YOUR-SERVICE-ACCOUNT-ID>"
+      KEY_ID: "<YOUR-KEY-ID>"
+      SECRET_KEY_PATH: "<YOUR-SECRET-KEY-PATH>"
+      YC_BILLING_ID: "<YOUR-YC-BILLING-ID>"

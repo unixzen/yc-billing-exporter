@@ -1,6 +1,7 @@
 package main
 
 import (
+	"crypto/rsa"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -37,19 +39,31 @@ func main() {
 
 	logger.Info("Yandex cloud billing exporter is running...")
 
-	oAuthToken, ok := os.LookupEnv("TOKEN")
+	serviceAccountID, ok := os.LookupEnv("SERVICE_ACCOUNT_ID")
 	if !ok {
-		slog.Error("oAuthToken not set")
+		slog.Error("SERVICE_ACCOUNT_ID not set")
 		os.Exit(1)
 	}
 
-	ycBillingId, ok := os.LookupEnv("YCBILLINGID")
+	keyID, ok := os.LookupEnv("KEY_ID")
 	if !ok {
-		slog.Error("YCBILLINGID not set")
+		slog.Error("KEY_ID not set")
 		os.Exit(1)
 	}
 
-	go recordMetrics(oAuthToken, ycBillingId)
+	secretKeyPath, ok := os.LookupEnv("SECRET_KEY_PATH")
+	if !ok {
+		slog.Error("SECRET_KEY_PATH not set")
+		os.Exit(1)
+	}
+
+	ycBillingId, ok := os.LookupEnv("YC_BILLING_ID")
+	if !ok {
+		slog.Error("YC_BILLING_ID not set")
+		os.Exit(1)
+	}
+
+	go recordMetrics(serviceAccountID, keyID, secretKeyPath, ycBillingId)
 
 	srv := &http.Server{
 		Addr:    ":2112",
@@ -71,11 +85,11 @@ func main() {
 	slog.Info("Http server stopped")
 }
 
-func recordMetrics(oAuthToken string, ycBillingId string) {
+func recordMetrics(serviceAccountID string, keyID string, secretKeyPath string, ycBillingId string) {
 	gauge := initMetrics()
 	slog.Info("Record prometeus metric")
 	for {
-		getToken, _ := getIAMToken(oAuthToken)
+		getToken := exchangeJWTToIAM(serviceAccountID, keyID, secretKeyPath)
 		bl, _ := getYandexCloudBilling(getToken, ycBillingId)
 		gauge.Set(bl)
 		time.Sleep(time.Hour * 1)
@@ -90,34 +104,62 @@ func initMetrics() prometheus.Gauge {
 	})
 }
 
-func getIAMToken(oAuthToken string) (string, error) {
-	slog.Info("Getting IAM token...")
+func createJWTToken(serviceAccountID string, keyID string, keyFile string) string {
+	claims := jwt.RegisteredClaims{
+		Issuer:    serviceAccountID,
+		ExpiresAt: jwt.NewNumericDate(time.Now().UTC().Add(1 * time.Hour)),
+		IssuedAt:  jwt.NewNumericDate(time.Now().UTC()),
+		NotBefore: jwt.NewNumericDate(time.Now().UTC()),
+		Audience:  []string{"https://iam.api.cloud.yandex.net/iam/v1/tokens"},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodPS256, claims)
+	token.Header["kid"] = keyID
+
+	privateKey := loadPrivateKey(keyFile)
+	signed, err := token.SignedString(privateKey)
+	if err != nil {
+		slog.Error("Error get JWT token: %s\n", err)
+	}
+
+	return signed
+}
+
+func loadPrivateKey(keyFile string) *rsa.PrivateKey {
+	data, err := os.ReadFile(keyFile)
+	if err != nil {
+		slog.Error("Can't read privatekey file: %s\n", err)
+	}
+	rsaPrivateKey, err := jwt.ParseRSAPrivateKeyFromPEM(data)
+	if err != nil {
+		slog.Error("Can't parse privatekey file: %s\n", err)
+	}
+	return rsaPrivateKey
+}
+
+func exchangeJWTToIAM(serviceAccountID string, keyID string, keyFile string) string {
+	jot := createJWTToken(serviceAccountID, keyID, keyFile)
 	resp, err := http.Post(
 		"https://iam.api.cloud.yandex.net/iam/v1/tokens",
 		"application/json",
-		strings.NewReader(fmt.Sprintf(`{"yandexPassportOauthToken":"%s"}`, oAuthToken)),
+		strings.NewReader(fmt.Sprintf(`{"jwt":"%s"}`, jot)),
 	)
 	if err != nil {
-		slog.Error("Can't make request")
-		return "", err
+		slog.Error("Can't make request to IAM API: %s\n", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		slog.Error("HTTP request err", resp.Status, body)
+		panic(fmt.Sprintf("%s: %s", resp.Status, body))
 	}
 	var data struct {
 		IAMToken string `json:"iamToken"`
 	}
 	err = json.NewDecoder(resp.Body).Decode(&data)
 	if err != nil {
-		slog.Error("Can't decode response from IAM yandex cloud API")
-		return "", err
+		slog.Error("Can't decode json from IAM API request: %s\n", err)
 	}
 
-	slog.Info("IAM token received")
-	return data.IAMToken, nil
-
+	return data.IAMToken
 }
 
 func getYandexCloudBilling(iamToken string, ycBillingId string) (float64, error) {
@@ -152,9 +194,9 @@ func getYandexCloudBilling(iamToken string, ycBillingId string) (float64, error)
 		slog.Error("Can't make unmarshal json")
 		return 0, err
 	}
+
 	flBalance, err := strconv.ParseFloat(ycMetrics.Balance, 64)
 	if err != nil {
-		//log.Fatal("Can't convert string to float64")
 		slog.Error("Can't convert string to float64")
 	}
 	slog.Info("Received value of balance of Yandex cloud")
