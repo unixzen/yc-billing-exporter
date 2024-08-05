@@ -197,9 +197,11 @@ func getYandexCloudBilling(iamToken string, ycBillingId string) (float64, error)
 
 	flBalance, err := strconv.ParseFloat(ycMetrics.Balance, 64)
 	if err != nil {
-		slog.Error("Can't convert string to float64")
+		slog.Error("Can't convert string to float64", "error", err, "balance_string", ycMetrics.Balance)
+		// Return 0 as balance and the error
+		return 0, err
 	}
-	slog.Info("Received value of balance of Yandex cloud")
+	slog.Info("Received value of balance of Yandex cloud", "balance", flBalance)
 
 	return flBalance, nil
 }
