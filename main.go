@@ -1,8 +1,5 @@
 package main
 
-// BUCKET_NAME=bucket YC_ACCESS_KEY_ID=yc_access_key_id YC_SECRET_ACCESS_KEY=yc_secret_access_key
-// SERVICE_ACCOUNT_ID=service_account KEY_ID=key_id SECRET_KEY_PATH=privatekey.pem YC_BILLING_ID=yc_billing_id go run main.go
-
 import (
 	"context"
 	"crypto/rsa"
