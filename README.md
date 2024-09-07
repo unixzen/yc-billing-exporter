@@ -6,7 +6,7 @@ Prometheus exporter for getting information about billing account of Yandex Clou
 First of all, need [create service account](https://yandex.cloud/en-ru/docs/iam/operations/sa/create) at Yandex cloud.
 After creating service account you need give permissions `billing.account.viewer` at level of [Organization](https://org.yandex.cloud/acl) at Yandex cloud. Next you need issue [Authorized keys](https://yandex.cloud/en-ru/docs/iam/concepts/authorization/key) they will be use for getting IAM-token at this step you need save `privateKey` and `id`.
 
-Secondly, for getting detail information about amount of usage follow this [instructions](https://yandex.cloud/ru/docs/billing/operations/get-folder-report#set-up-regular-download) for configuration S3 bucket and regular CSV reports.
+Secondly, for getting detail information about amount of usage follow this [instructions](https://yandex.cloud/ru/docs/billing/operations/get-folder-report#set-up-regular-download) for configuration S3 bucket and regular CSV reports. For getting access from to S3 bucket need create [static keys](https://yandex.cloud/ru/docs/iam/concepts/authorization/access-key)
 
 ## Metrics
 
