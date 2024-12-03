@@ -6,12 +6,25 @@ Prometheus exporter for getting information about billing account of Yandex Clou
 First of all, need [create service account](https://yandex.cloud/en-ru/docs/iam/operations/sa/create) at Yandex cloud.
 After creating service account you need give permissions `billing.account.viewer` at level of [Organization](https://org.yandex.cloud/acl) at Yandex cloud. Next you need issue [Authorized keys](https://yandex.cloud/en-ru/docs/iam/concepts/authorization/key) they will be use for getting IAM-token at this step you need save `privateKey` and `id`.
 
+Secondly, for getting detail information about amount of usage follow this [instructions](https://yandex.cloud/ru/docs/billing/operations/get-folder-report#set-up-regular-download) for configuration S3 bucket and regular CSV reports. For getting access with service account to S3 bucket need create [static keys](https://yandex.cloud/ru/docs/iam/concepts/authorization/access-key)
+
+## Metrics
+
+List of metrics
+
+Name     | Description |
+---------|-------------|
+yc_billing_balance | The total balance of Yandex cloud account |
+yc_billing_current_day_usage_amount | Current day usage amount of Yandex cloud account |
+yc_billing_current_month_usage_amount | Current month usage amount of Yandex cloud account |
+
 > [!CAUTION]
 > Private key of authorized keys is secret information which make execute operations at Yandex cloud. Private key need store at secure place.
 
 ## How it works
 
 Yc billing exporter once at hour get IAM token and make request to [Billing API](https://yandex.cloud/ru/docs/billing/api-ref/BillingAccount/get) for getting remaining of money at balance.
+Yc billing exporter download CSV reports and make current day usage amount metric and current month usage amount metric.
 
 ## Configuration
 
@@ -20,6 +33,9 @@ For running yc-billing-exporter you need set next environment variables:
 2. `SERVICE_ACCOUNT_ID` - Service account ID
 3. `KEY_ID` - Open key ID which you get from step issue Authorized keys
 4. `SECRET_KEY_PATH` - Path at local file system where store `privateKey` (Later may be will be add some manager of secrets)
+5. `BUCKET_NAME` - Namem of bucket where stores regular CSV reports consist information about usage.
+6. `YC_ACCESS_KEY_ID` - Access key id for accessing to S3 bucket 
+7. `YC_SECRET_ACCESS_KEY` - Secret access key for accessing to S3 bucket
 
 ## How run
 
